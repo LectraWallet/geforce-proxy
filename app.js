@@ -150,6 +150,29 @@ function syncAddressBar() {
   }
 }
 
+// GFN sends logins to a broken /product-matrix/undefined page (the product
+// id comes back undefined through the proxy) and a reload then reports
+// "login unsuccessful". Send that dead link to the real GFN app instead.
+let lastBrokenRedirect = 0;
+function fixBrokenRedirect() {
+  if (!iframe || !frame) return;
+  let raw = "";
+  try {
+    raw = iframe.contentWindow.location.href || "";
+  } catch {
+    raw = "";
+  }
+  if (!raw || raw.startsWith("about:")) raw = iframe.src || "";
+  const real = decodeFrameUrl(raw);
+  if (real && real.includes("/product-matrix/undefined")) {
+    const now = Date.now();
+    if (now - lastBrokenRedirect > 5000) {
+      lastBrokenRedirect = now;
+      frame.go(HOME_URL);
+    }
+  }
+}
+
 function go(raw) {
   const target = normalizeInput(raw);
   if (!target || !frame) return;
@@ -215,8 +238,8 @@ async function init() {
     );
     $("frames").appendChild(iframe);
     frame = controller.createFrame(iframe);
-    iframe.addEventListener("load", () => { syncAddressBar(); attachLinkInterceptor(); });
-    setInterval(() => { syncAddressBar(); attachLinkInterceptor(); }, 500);
+    iframe.addEventListener("load", () => { syncAddressBar(); attachLinkInterceptor(); fixBrokenRedirect(); });
+    setInterval(() => { syncAddressBar(); attachLinkInterceptor(); fixBrokenRedirect(); }, 500);
 
     backBtn.disabled = false;
     fwdBtn.disabled = false;
