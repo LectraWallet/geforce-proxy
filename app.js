@@ -1,18 +1,38 @@
-/* GeForce NOW proxy — Scramjet v2 (2.0.67-alpha.2) + libcurl over WISP.
-   Flat static site: engine files live next to this page at the repo root.
-   No BareMux / Bare fallback in v2 — WISP (Oracle VM) is the only transport. */
+/* SJ link-drop proxy frontend — Scramjet 1.1 + BareMux.
+   Same wiring as the proven xboxcloud proxy, minus Xbox/PIN/UV code.
+   The page works from any directory on any static host: every path below
+   is resolved relative to this page's own URL. */
+
+// Backend Bare server. Override per-link with ?bare=https://host/bare/
+const DEFAULT_BARE_URL = "https://barelink-landons-projects-e458b478.vercel.app/bare/";
+const PARAMS = new URLSearchParams(location.search);
+const BARE_URL = PARAMS.get("bare") || DEFAULT_BARE_URL;
 
 // WISP server (Oracle VM, baked in as the default). Override with
 // ?wisp=wss://host/ or the settings bar below (saved to localStorage).
+// Picking "Bare" in settings still switches back to the shared Bare backend.
 const DEFAULT_WISP_URL = "wss://gfn-wisp-qkxm.duckdns.org/";
-const PARAMS = new URLSearchParams(location.search);
 const SAVED_WISP = (localStorage.getItem("gfn_wisp") || "").trim();
 const WISP_URL = PARAMS.get("wisp") || SAVED_WISP || DEFAULT_WISP_URL;
+const USE_WISP =
+  !!PARAMS.get("wisp") ||
+  (localStorage.getItem("gfn_transport") !== "bare" && !!WISP_URL);
 
 const DIR = new URL(".", location.href).pathname; // this page's directory, ends with "/"
-const SW_URL = new URL("sw.js", new URL("./", location.href)).pathname;
-// v2 proxied URLs: /~/sj/<controllerId>/<frameId>/<encoded real URL>
-const PREFIX = "/~/sj/";
+// Asset root: the link bot puts pages 2 levels deep (assets/vNNNN/) with the
+// engine files at the repo root. "../../" climbs there, and clamps to the
+// root for flat deploys where everything sits together.
+const ASSET = new URL("./", location.href);
+const SW_URL = new URL("sw.js", ASSET).pathname;
+const WORKER_ENTRY = new URL("baremux-worker-entry.js", ASSET).pathname;
+const TRANSPORT_URL = new URL("bare-transport.mjs", ASSET).pathname;
+const LIBCURL_URL = new URL("libcurl-transport.mjs", ASSET).pathname;
+const PREFIX = DIR + "scramjet/";
+const FILES = {
+  wasm: new URL("scramjet.wasm.wasm", ASSET).pathname,
+  all: new URL("scramjet.all.js", ASSET).pathname,
+  sync: new URL("scramjet.sync.js", ASSET).pathname,
+};
 const HOME_URL = "https://play.geforcenow.com";
 
 const $ = (id) => document.getElementById(id);
@@ -46,10 +66,7 @@ function decodeFrameUrl(rawHref) {
   try {
     const u = new URL(rawHref, location.origin);
     if (u.pathname.startsWith(PREFIX)) {
-      const parts = u.pathname.slice(PREFIX.length).split("/");
-      if (parts.length >= 3) {
-        return decodeURIComponent(parts.slice(2).join("/")) + (u.hash || "");
-      }
+      return decodeURIComponent(u.pathname.slice(PREFIX.length)) + (u.hash || "");
     }
   } catch {
     /* ignore */
@@ -70,7 +87,7 @@ function isExternalUrl(real) {
   }
 }
 // Turn a link/open href from inside the frame into the real URL: decode a
-// proxied /~/sj/... path, or keep an absolute URL as-is.
+// proxied /scramjet/... path, or keep an absolute URL as-is.
 function realUrlFromHref(href) {
   const decoded = decodeFrameUrl(href || "");
   if (decoded) return decoded;
@@ -106,28 +123,13 @@ function attachLinkInterceptor() {
           return null;
         }
         if (!real) {
-          // GFN opens a blank popup first, then sets its location. A fake
-          // handle avoids a visible blank tab, but the popup must stay in
-          // the proxy for NVIDIA/GeForce URLs so the login can post the
-          // session back; a real tab (noopener) severs that and the login
-          // loops back to the loginwall. So in-frame URLs open as a real
-          // proxied popup, external ones open in a real tab.
+          // GFN opens a blank popup first, then sets its location — passing
+          // the blank through is what made the grey about:blank tab. Hand
+          // it a fake handle: assigning .location / .location.href opens
+          // the real URL in a tab instead.
           const openReal = (v) => {
             const r = realUrlFromHref(String(v || ""));
-            if (!r) return;
-            if (!isExternalUrl(r)) {
-              try {
-                const src = iframe.src || "";
-                const m = src.match(/(\/~\/sj\/[^/]+\/[^/]+\/)/);
-                if (m) {
-                  origOpen(m[1] + encodeURIComponent(r), "_blank");
-                  return;
-                }
-              } catch {
-                /* fall through to a real tab */
-              }
-            }
-            window.open(r, "_blank", "noopener");
+            if (r) window.open(r, "_blank", "noopener");
           };
           const loc = {};
           Object.defineProperty(loc, "href", { set: openReal, get: () => "" });
@@ -162,41 +164,6 @@ function syncAddressBar() {
     } catch {
       /* ignore */
     }
-  }
-}
-
-// GFN sends logins to broken pages with an "undefined" id (product-matrix
-// and consent both do it) and a reload then reports "login unsuccessful".
-// Send any such dead link to the real GFN app instead. Only after the bad
-// URL has sat still for 3s, so a login redirect that briefly passes through
-// an "undefined" URL is not hijacked mid-login.
-let lastBrokenRedirect = 0;
-let brokenSeenAt = 0;
-let brokenSeenUrl = "";
-function fixBrokenRedirect() {
-  if (!iframe || !frame) return;
-  let raw = "";
-  try {
-    raw = iframe.contentWindow.location.href || "";
-  } catch {
-    raw = "";
-  }
-  if (!raw || raw.startsWith("about:")) raw = iframe.src || "";
-  const real = decodeFrameUrl(raw);
-  if (real && /\/undefined(\/|$|\?|#)/.test(real)) {
-    if (real !== brokenSeenUrl) {
-      brokenSeenUrl = real;
-      brokenSeenAt = Date.now();
-      return;
-    }
-    const now = Date.now();
-    if (now - brokenSeenAt >= 3000 && now - lastBrokenRedirect > 5000) {
-      lastBrokenRedirect = now;
-      brokenSeenUrl = "";
-      frame.go(HOME_URL);
-    }
-  } else {
-    brokenSeenUrl = "";
   }
 }
 
@@ -238,25 +205,33 @@ async function ensureServiceWorkerReady() {
 
 async function init() {
   try {
-    setStatus("registering worker…");
-    await ensureServiceWorkerReady();
-    const sw = navigator.serviceWorker.controller || (await navigator.serviceWorker.ready).active;
-    if (!sw) throw new Error("No active service worker.");
-
-    setStatus("connecting (wisp)…");
-    const transport = new LibcurlTransport.LibcurlClient({ wisp: WISP_URL });
-    const { Controller } = window.$scramjetController;
-    controller = new Controller({
-      serviceworker: sw,
-      transport,
-      config: {
-        prefix: PREFIX,
-        scramjetPath: DIR + "scramjet.js",
-        wasmPath: DIR + "scramjet.wasm",
-        injectPath: DIR + "controller.inject.js",
+    setStatus("loading engine…");
+    const { ScramjetController } = $scramjetLoadController();
+    controller = new ScramjetController({
+      prefix: PREFIX,
+      files: FILES,
+      flags: {
+        serviceworkers: false,
+        syncxhr: false,
+        sourcemaps: false,
+        scramitize: false,
+        allowInvalidJs: true,
+        allowFailedIntercepts: true,
       },
     });
-    await controller.wait();
+    await controller.init();
+
+    setStatus("registering worker…");
+    await ensureServiceWorkerReady();
+
+    setStatus("connecting…");
+    const bareConnection = new BareMux.BareMuxConnection(WORKER_ENTRY);
+    if (USE_WISP) {
+      setStatus("connecting (wisp)…");
+      await bareConnection.setTransport(LIBCURL_URL, [{ wisp: WISP_URL }]);
+    } else {
+      await bareConnection.setTransport(TRANSPORT_URL, [BARE_URL]);
+    }
 
     iframe = document.createElement("iframe");
     iframe.setAttribute(
@@ -265,8 +240,8 @@ async function init() {
     );
     $("frames").appendChild(iframe);
     frame = controller.createFrame(iframe);
-    iframe.addEventListener("load", () => { syncAddressBar(); attachLinkInterceptor(); fixBrokenRedirect(); });
-    setInterval(() => { syncAddressBar(); attachLinkInterceptor(); fixBrokenRedirect(); }, 500);
+    iframe.addEventListener("load", () => { syncAddressBar(); attachLinkInterceptor(); });
+    setInterval(() => { syncAddressBar(); attachLinkInterceptor(); }, 500);
 
     backBtn.disabled = false;
     fwdBtn.disabled = false;
@@ -275,7 +250,7 @@ async function init() {
 
     const hashTarget = location.hash ? decodeURIComponent(location.hash.slice(1)) : "";
     const start = /^https?:\/\//i.test(hashTarget) ? hashTarget : HOME_URL;
-    setStatus("ready (wisp)");
+    setStatus("ready (" + (USE_WISP ? "wisp" : "bare") + ")");
     frame.go(start);
   } catch (e) {
     console.error("[SJ] init failed:", e);
@@ -283,13 +258,16 @@ async function init() {
   }
 }
 
-// Settings bar (WISP URL saved to localStorage; reload applies it)
+// Transport settings bar (WISP URL saved to localStorage; reload applies it)
 (function wireSettings() {
   const bar = $("settings");
+  const sel = $("transportSel");
   const wispInput = $("wispUrl");
+  sel.value = localStorage.getItem("gfn_transport") || "wisp";
   wispInput.value = localStorage.getItem("gfn_wisp") || DEFAULT_WISP_URL;
   $("setBtn").onclick = () => bar.classList.toggle("open");
   $("saveTransport").onclick = () => {
+    localStorage.setItem("gfn_transport", sel.value);
     localStorage.setItem("gfn_wisp", wispInput.value.trim());
     location.reload();
   };
