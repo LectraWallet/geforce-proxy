@@ -122,6 +122,21 @@ function attachLinkInterceptor() {
           window.open(real, "_blank", "noopener");
           return null;
         }
+        if (!real) {
+          // GFN opens a blank popup first, then sets its location — passing
+          // the blank through is what made the grey about:blank tab. Hand
+          // it a fake handle: assigning .location / .location.href opens
+          // the real URL in a tab instead.
+          const openReal = (v) => {
+            const r = realUrlFromHref(String(v || ""));
+            if (r) window.open(r, "_blank", "noopener");
+          };
+          const loc = {};
+          Object.defineProperty(loc, "href", { set: openReal, get: () => "" });
+          const handle = { closed: false, close() {}, focus() {} };
+          Object.defineProperty(handle, "location", { set: openReal, get: () => loc });
+          return handle;
+        }
         return origOpen(url, target, features);
       };
     }
