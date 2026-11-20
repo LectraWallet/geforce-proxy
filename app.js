@@ -167,8 +167,12 @@ function syncAddressBar() {
 
 // GFN sends logins to broken pages with an "undefined" id (product-matrix
 // and consent both do it) and a reload then reports "login unsuccessful".
-// Send any such dead link to the real GFN app instead.
+// Send any such dead link to the real GFN app instead. Only after the bad
+// URL has sat still for 3s, so a login redirect that briefly passes through
+// an "undefined" URL is not hijacked mid-login.
 let lastBrokenRedirect = 0;
+let brokenSeenAt = 0;
+let brokenSeenUrl = "";
 function fixBrokenRedirect() {
   if (!iframe || !frame) return;
   let raw = "";
@@ -180,11 +184,19 @@ function fixBrokenRedirect() {
   if (!raw || raw.startsWith("about:")) raw = iframe.src || "";
   const real = decodeFrameUrl(raw);
   if (real && /\/undefined(\/|$|\?|#)/.test(real)) {
+    if (real !== brokenSeenUrl) {
+      brokenSeenUrl = real;
+      brokenSeenAt = Date.now();
+      return;
+    }
     const now = Date.now();
-    if (now - lastBrokenRedirect > 5000) {
+    if (now - brokenSeenAt >= 3000 && now - lastBrokenRedirect > 5000) {
       lastBrokenRedirect = now;
+      brokenSeenUrl = "";
       frame.go(HOME_URL);
     }
+  } else {
+    brokenSeenUrl = "";
   }
 }
 
