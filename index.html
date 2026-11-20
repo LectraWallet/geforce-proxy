@@ -59,17 +59,14 @@
   <span id="status">starting…</span>
 </header>
 <div id="settings">
-  <label>Transport</label>
-  <select id="transportSel">
-    <option value="bare">Bare (works now)</option>
-    <option value="wisp">WISP (your Oracle server — default)</option>
-  </select>
+  <label>WISP URL</label>
   <input id="wispUrl" type="text" placeholder="wss://your-server.duckdns.org/" autocomplete="off" spellcheck="false" />
   <button id="saveTransport">Save + reload</button>
 </div>
 <div id="frames"></div>
-<script src="./baremux.js"></script>
-<script src="./scramjet.all.js"></script>
+<script src="./scramjet.js"></script>
+<script src="./controller.api.js"></script>
+<script src="./libcurl-client.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
