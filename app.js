@@ -106,13 +106,28 @@ function attachLinkInterceptor() {
           return null;
         }
         if (!real) {
-          // GFN opens a blank popup first, then sets its location — passing
-          // the blank through is what made the grey about:blank tab. Hand
-          // it a fake handle: assigning .location / .location.href opens
-          // the real URL in a tab instead.
+          // GFN opens a blank popup first, then sets its location. A fake
+          // handle avoids a visible blank tab, but the popup must stay in
+          // the proxy for NVIDIA/GeForce URLs so the login can post the
+          // session back; a real tab (noopener) severs that and the login
+          // loops back to the loginwall. So in-frame URLs open as a real
+          // proxied popup, external ones open in a real tab.
           const openReal = (v) => {
             const r = realUrlFromHref(String(v || ""));
-            if (r) window.open(r, "_blank", "noopener");
+            if (!r) return;
+            if (!isExternalUrl(r)) {
+              try {
+                const src = iframe.src || "";
+                const m = src.match(/(\/~\/sj\/[^/]+\/[^/]+\/)/);
+                if (m) {
+                  origOpen(m[1] + encodeURIComponent(r), "_blank");
+                  return;
+                }
+              } catch {
+                /* fall through to a real tab */
+              }
+            }
+            window.open(r, "_blank", "noopener");
           };
           const loc = {};
           Object.defineProperty(loc, "href", { set: openReal, get: () => "" });
