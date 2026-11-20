@@ -74,6 +74,62 @@ function decodeFrameUrl(rawHref) {
   return "";
 }
 
+// Account-linking / login pages (Epic, Steam, Xbox, ...) open in a REAL new
+// tab instead of inside the frame: those OAuth pages render blank or break
+// through the proxy, but work fine direct. GFN/NVIDIA hosts stay in-frame.
+const IN_FRAME_HOSTS = [/^(.+\.)?geforcenow\.com$/, /^(.+\.)?nvidia\.com$/, /^(.+\.)?nvidiagrid\.net$/];
+function isExternalUrl(real) {
+  try {
+    const host = new URL(real).hostname;
+    return !IN_FRAME_HOSTS.some((re) => re.test(host));
+  } catch {
+    return false;
+  }
+}
+// Turn a link/open href from inside the frame into the real URL: decode a
+// proxied /scramjet/... path, or keep an absolute URL as-is.
+function realUrlFromHref(href) {
+  const decoded = decodeFrameUrl(href || "");
+  if (decoded) return decoded;
+  return /^https?:\/\//i.test(href || "") ? href : "";
+}
+function attachLinkInterceptor() {
+  if (!iframe) return;
+  let doc = null;
+  try { doc = iframe.contentDocument; } catch { return; }
+  if (!doc || doc.__gfnLinkHook) return;
+  doc.__gfnLinkHook = true;
+  // Plain link clicks to outside hosts -> real new tab.
+  doc.addEventListener("click", (e) => {
+    const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a) return;
+    const real = realUrlFromHref(a.getAttribute("href"));
+    if (real && isExternalUrl(real)) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(real, "_blank", "noopener");
+    }
+  }, true);
+  // Popup opens (window.open) from inside the frame -> real new tab too.
+  try {
+    const cw = iframe.contentWindow;
+    if (cw && !cw.__gfnOpenHook) {
+      cw.__gfnOpenHook = true;
+      const origOpen = cw.open.bind(cw);
+      cw.open = (url, target, features) => {
+        const real = realUrlFromHref(String(url || ""));
+        if (real && isExternalUrl(real)) {
+          window.open(real, "_blank", "noopener");
+          return null;
+        }
+        return origOpen(url, target, features);
+      };
+    }
+  } catch {
+    /* cross-origin moment — the interval retries */
+  }
+}
+
 function syncAddressBar() {
   if (!iframe) return;
   let raw = "";
@@ -169,8 +225,8 @@ async function init() {
     );
     $("frames").appendChild(iframe);
     frame = controller.createFrame(iframe);
-    iframe.addEventListener("load", syncAddressBar);
-    setInterval(syncAddressBar, 500);
+    iframe.addEventListener("load", () => { syncAddressBar(); attachLinkInterceptor(); });
+    setInterval(() => { syncAddressBar(); attachLinkInterceptor(); }, 500);
 
     backBtn.disabled = false;
     fwdBtn.disabled = false;
