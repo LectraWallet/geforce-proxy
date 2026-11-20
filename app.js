@@ -8,14 +8,15 @@ const DEFAULT_BARE_URL = "https://barelink-landons-projects-e458b478.vercel.app/
 const PARAMS = new URLSearchParams(location.search);
 const BARE_URL = PARAMS.get("bare") || DEFAULT_BARE_URL;
 
-// WISP server (Oracle VM). Override with ?wisp=wss://host/ or the settings
-// bar below (saved to localStorage). When set, the libcurl transport talks
-// WISP instead of Bare. No WISP set = Bare via barelink (works now).
+// WISP server (Oracle VM, baked in as the default). Override with
+// ?wisp=wss://host/ or the settings bar below (saved to localStorage).
+// Picking "Bare" in settings still switches back to the shared Bare backend.
+const DEFAULT_WISP_URL = "wss://gfn-wisp-qkxm.duckdns.org/";
 const SAVED_WISP = (localStorage.getItem("gfn_wisp") || "").trim();
-const WISP_URL = PARAMS.get("wisp") || SAVED_WISP;
+const WISP_URL = PARAMS.get("wisp") || SAVED_WISP || DEFAULT_WISP_URL;
 const USE_WISP =
   !!PARAMS.get("wisp") ||
-  (localStorage.getItem("gfn_transport") === "wisp" && !!SAVED_WISP);
+  (localStorage.getItem("gfn_transport") !== "bare" && !!WISP_URL);
 
 const DIR = new URL(".", location.href).pathname; // this page's directory, ends with "/"
 // Asset root: the link bot puts pages 2 levels deep (assets/vNNNN/) with the
@@ -191,8 +192,8 @@ async function init() {
   const bar = $("settings");
   const sel = $("transportSel");
   const wispInput = $("wispUrl");
-  sel.value = localStorage.getItem("gfn_transport") || "bare";
-  wispInput.value = localStorage.getItem("gfn_wisp") || "";
+  sel.value = localStorage.getItem("gfn_transport") || "wisp";
+  wispInput.value = localStorage.getItem("gfn_wisp") || DEFAULT_WISP_URL;
   $("setBtn").onclick = () => bar.classList.toggle("open");
   $("saveTransport").onclick = () => {
     localStorage.setItem("gfn_transport", sel.value);
