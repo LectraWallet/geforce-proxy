@@ -6,14 +6,7 @@
 // ?wisp=wss://host/ or the settings bar below (saved to localStorage).
 const DEFAULT_WISP_URL = "wss://gfn-wisp-qkxm.duckdns.org/";
 const PARAMS = new URLSearchParams(location.search);
-let SAVED_WISP = (localStorage.getItem("gfn_wisp") || "").trim();
-// The old Oracle DuckDNS address is blocked on school WiFi, so a saved
-// copy of it must not shadow the new Mercury default (saved beats default
-// in the line below). Drop it once and fall through to Mercury.
-if (SAVED_WISP.includes("gfn-wisp-qkxm.duckdns.org")) {
-  localStorage.removeItem("gfn_wisp");
-  SAVED_WISP = "";
-}
+const SAVED_WISP = (localStorage.getItem("gfn_wisp") || "").trim();
 const WISP_URL = PARAMS.get("wisp") || SAVED_WISP || DEFAULT_WISP_URL;
 
 const DIR = new URL(".", location.href).pathname; // this page's directory, ends with "/"
