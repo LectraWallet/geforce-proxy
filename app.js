@@ -2,12 +2,18 @@
    Flat static site: engine files live next to this page at the repo root.
    No BareMux / Bare fallback in v2 — WISP (Oracle VM) is the only transport. */
 
-// WISP server — MercuryWorkshop's public WISP (school blocks the old
-// DuckDNS address). Override with ?wisp=wss://host/ or the settings bar
-// (saved to localStorage). Oracle fallback: wss://gfn-wisp-qkxm.duckdns.org/
-const DEFAULT_WISP_URL = "wss://wisp.mercurywork.shop/";
+// WISP server (Oracle VM, baked in as the default). Override with
+// ?wisp=wss://host/ or the settings bar below (saved to localStorage).
+const DEFAULT_WISP_URL = "wss://gfn-wisp-qkxm.duckdns.org/";
 const PARAMS = new URLSearchParams(location.search);
-const SAVED_WISP = (localStorage.getItem("gfn_wisp") || "").trim();
+let SAVED_WISP = (localStorage.getItem("gfn_wisp") || "").trim();
+// The old Oracle DuckDNS address is blocked on school WiFi, so a saved
+// copy of it must not shadow the new Mercury default (saved beats default
+// in the line below). Drop it once and fall through to Mercury.
+if (SAVED_WISP.includes("gfn-wisp-qkxm.duckdns.org")) {
+  localStorage.removeItem("gfn_wisp");
+  SAVED_WISP = "";
+}
 const WISP_URL = PARAMS.get("wisp") || SAVED_WISP || DEFAULT_WISP_URL;
 
 const DIR = new URL(".", location.href).pathname; // this page's directory, ends with "/"
