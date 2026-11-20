@@ -167,6 +167,34 @@ function syncAddressBar() {
   }
 }
 
+// The product-matrix page (nvidia.com/gfn/product-matrix/) loads, spins,
+// then fails the login ("Login Unsuccessful"). It carries the real login
+// callback in its uasCallbackUrl param, so skip the page and go straight
+// to the callback to finish the sign-in.
+let lastMatrixBypass = 0;
+function fixProductMatrix() {
+  if (!iframe || !frame) return;
+  let raw = "";
+  try {
+    raw = iframe.contentWindow.location.href || "";
+  } catch {
+    raw = "";
+  }
+  if (!raw || raw.startsWith("about:")) raw = iframe.src || "";
+  const real = decodeFrameUrl(raw);
+  if (!real) return;
+  let u = null;
+  try { u = new URL(real); } catch { return; }
+  if (!/\/gfn\/product-matrix\/?$/.test(u.pathname)) return;
+  const cb = u.searchParams.get("uasCallbackUrl");
+  if (!cb || !/^https:\/\//i.test(cb)) return;
+  const now = Date.now();
+  if (now - lastMatrixBypass > 10000) {
+    lastMatrixBypass = now;
+    frame.go(cb);
+  }
+}
+
 function go(raw) {
   const target = normalizeInput(raw);
   if (!target || !frame) return;
@@ -240,8 +268,8 @@ async function init() {
     );
     $("frames").appendChild(iframe);
     frame = controller.createFrame(iframe);
-    iframe.addEventListener("load", () => { syncAddressBar(); attachLinkInterceptor(); });
-    setInterval(() => { syncAddressBar(); attachLinkInterceptor(); }, 500);
+    iframe.addEventListener("load", () => { syncAddressBar(); attachLinkInterceptor(); fixProductMatrix(); });
+    setInterval(() => { syncAddressBar(); attachLinkInterceptor(); fixProductMatrix(); }, 500);
 
     backBtn.disabled = false;
     fwdBtn.disabled = false;
