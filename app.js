@@ -150,9 +150,9 @@ function syncAddressBar() {
   }
 }
 
-// GFN sends logins to a broken /product-matrix/undefined page (the product
-// id comes back undefined through the proxy) and a reload then reports
-// "login unsuccessful". Send that dead link to the real GFN app instead.
+// GFN sends logins to broken pages with an "undefined" id (product-matrix
+// and consent both do it) and a reload then reports "login unsuccessful".
+// Send any such dead link to the real GFN app instead.
 let lastBrokenRedirect = 0;
 function fixBrokenRedirect() {
   if (!iframe || !frame) return;
@@ -164,7 +164,7 @@ function fixBrokenRedirect() {
   }
   if (!raw || raw.startsWith("about:")) raw = iframe.src || "";
   const real = decodeFrameUrl(raw);
-  if (real && real.includes("/product-matrix/undefined")) {
+  if (real && /\/undefined(\/|$|\?|#)/.test(real)) {
     const now = Date.now();
     if (now - lastBrokenRedirect > 5000) {
       lastBrokenRedirect = now;
